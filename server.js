@@ -115,17 +115,43 @@ function allPiecesPlaced(color) {
 }
 
 function getBoardForPlayer(playerColor) {
-  // Returns board state where opponent pieces are hidden (show as 'unknown')
+  // Returns board state with opponent pieces handled based on game phase:
+  // - placement (opponent not ready): opponent pieces completely invisible
+  // - placement (opponent ready): opponent pieces shown as '?'
+  // - playing/gameover: opponent pieces shown as '?' unless revealed by combat
   const view = [];
+  const isPlacement = gameState.phase === 'placement';
+
+  // Check if opponent has pressed Ready
+  let opponentReady = false;
+  if (isPlacement) {
+    for (const player of Object.values(gameState.players)) {
+      if (player.color !== playerColor) {
+        opponentReady = player.ready;
+      }
+    }
+  }
+
   for (let r = 0; r < 10; r++) {
     view[r] = [];
     for (let c = 0; c < 10; c++) {
       const cell = gameState.board[r][c];
       if (cell.figure && cell.figure.color !== playerColor) {
-        view[r][c] = {
-          type: cell.type,
-          figure: { color: cell.figure.color, key: 'unknown', hidden: true }
-        };
+        if (isPlacement && !opponentReady) {
+          // Opponent still placing - hide completely
+          view[r][c] = { type: cell.type, figure: null };
+        } else if (cell.figure.revealed) {
+          // This piece was involved in combat - show its identity
+          view[r][c] = {
+            type: cell.type,
+            figure: { ...cell.figure, hidden: false }
+          };
+        } else {
+          view[r][c] = {
+            type: cell.type,
+            figure: { color: cell.figure.color, key: 'unknown', hidden: true }
+          };
+        }
       } else {
         view[r][c] = {
           type: cell.type,

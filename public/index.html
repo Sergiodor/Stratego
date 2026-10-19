@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Stratego Online</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -18,8 +19,8 @@
   #status-bar {
     width: 100%;
     text-align: center;
-    padding: 10px;
-    font-size: 18px;
+    padding: 10px 8px;
+    font-size: 16px;
     font-weight: bold;
     background: #16213e;
     border-bottom: 2px solid #0f3460;
@@ -30,20 +31,30 @@
     gap: 20px;
     margin-top: 15px;
     align-items: flex-start;
+    padding: 0 10px;
+    width: 100%;
+    max-width: 760px;
+    justify-content: center;
   }
   #board-container {
     position: relative;
+    flex-shrink: 0;
   }
   canvas {
     border: 3px solid #0f3460;
     border-radius: 4px;
     cursor: pointer;
+    display: block;
+    width: 500px;
+    height: 500px;
   }
   #sidebar {
     display: flex;
     flex-direction: column;
     gap: 12px;
     width: 220px;
+    min-width: 180px;
+    flex-shrink: 1;
   }
   .panel {
     background: #16213e;
@@ -84,6 +95,7 @@
     position: relative;
     background: #1a1a2e;
     color: #eee;
+    -webkit-tap-highlight-color: transparent;
   }
   .figure-btn:hover { border-color: #e94560; transform: scale(1.08); }
   .figure-btn.selected { border-color: #e94560; background: #e9456033; box-shadow: 0 0 10px #e94560aa; }
@@ -131,6 +143,7 @@
     cursor: pointer;
     transition: all 0.15s;
     text-transform: uppercase;
+    -webkit-tap-highlight-color: transparent;
   }
   .btn-ready {
     background: #27ae60;
@@ -157,14 +170,15 @@
     background: #16213e;
     border: 3px solid #e94560;
     border-radius: 12px;
-    padding: 30px 40px;
+    padding: 24px 20px;
     text-align: center;
-    min-width: 320px;
+    min-width: 280px;
+    max-width: 90vw;
   }
   #combat-box h2 { margin-bottom: 15px; font-size: 20px; }
   .combat-figures {
     display: flex;
-    gap: 30px;
+    gap: 20px;
     justify-content: center;
     align-items: center;
     margin: 15px 0;
@@ -186,6 +200,61 @@
   .combat-fig.draw { border-color: #f39c12; opacity: 0.6; }
   .combat-vs { font-size: 24px; font-weight: bold; color: #e94560; }
   #combat-result-text { font-size: 16px; margin-top: 10px; }
+
+  /* ---- Responsive ---- */
+  @media (max-width: 760px) {
+    #main {
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      margin-top: 8px;
+      padding-bottom: 20px;
+    }
+    #board-container {
+      width: 100%;
+      max-width: 500px;
+    }
+    canvas {
+      width: 100%;
+      height: auto;
+      aspect-ratio: 1 / 1;
+    }
+    #sidebar {
+      width: 100%;
+      max-width: 500px;
+      flex-direction: column;
+    }
+    #figures-panel {
+      max-height: none;
+    }
+    #figures-grid {
+      gap: 6px;
+    }
+    .figure-btn {
+      width: 44px;
+      height: 44px;
+    }
+    .figure-btn .fig-label { font-size: 14px; }
+    .figure-btn .fig-name { font-size: 7px; }
+    .captured-list { max-height: 80px; }
+    #status-bar { font-size: 14px; padding: 8px 6px; }
+    .combat-fig { width: 60px; height: 60px; }
+    .combat-figures { gap: 14px; }
+    #combat-box { padding: 18px 14px; min-width: 240px; }
+  }
+
+  @media (max-width: 400px) {
+    .figure-btn {
+      width: 38px;
+      height: 38px;
+    }
+    .figure-btn .fig-label { font-size: 13px; }
+    .figure-btn .fig-name { display: none; }
+    .figure-btn .count { width: 16px; height: 16px; font-size: 9px; }
+    #status-bar { font-size: 12px; }
+    .combat-fig { width: 50px; height: 50px; font-size: 12px; }
+    #combat-result-text { font-size: 13px; }
+  }
 </style>
 </head>
 <body>
@@ -203,11 +272,11 @@
     </div>
     <div id="btn-container"></div>
     <div class="panel" id="captured-red-panel">
-      <h3 style="color: OrangeRed;">Captured Red</h3>
+      <h3 style="color: OrangeRed;">Captured Red (<span id="captured-red-count">0</span>)</h3>
       <div class="captured-list" id="captured-red"></div>
     </div>
     <div class="panel" id="captured-blue-panel">
-      <h3 style="color: MediumTurquoise;">Captured Blue</h3>
+      <h3 style="color: MediumTurquoise;">Captured Blue (<span id="captured-blue-count">0</span>)</h3>
       <div class="captured-list" id="captured-blue"></div>
     </div>
   </div>
@@ -258,6 +327,8 @@ const FIGURE_DEFS = {
 
 const FIGURE_ORDER = ['flag','bomb','spy','scout','miner','sergeant','lieutenant','captain','major','colonel','general','marshal'];
 
+const BOARD_SIZE = 500; // logical canvas resolution (10 * CELL)
+
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
@@ -270,7 +341,7 @@ let allowedMoves = [];     // [[row,col], ...] for currently selected piece
 
 function drawBoard() {
   if (!state) return;
-  ctx.clearRect(0, 0, 500, 500);
+  ctx.clearRect(0, 0, BOARD_SIZE, BOARD_SIZE);
 
   for (let r = 0; r < 10; r++) {
     for (let c = 0; c < 10; c++) {
@@ -448,6 +519,8 @@ function updateSidebar() {
   const capBlue = document.getElementById('captured-blue');
   capRed.innerHTML = (state.capturedRed || []).map(f => `<div>${FIGURE_DEFS[f.key]?.label || '?'} ${f.name}</div>`).join('');
   capBlue.innerHTML = (state.capturedBlue || []).map(f => `<div>${FIGURE_DEFS[f.key]?.label || '?'} ${f.name}</div>`).join('');
+  document.getElementById('captured-red-count').textContent = (state.capturedRed || []).length;
+  document.getElementById('captured-blue-count').textContent = (state.capturedBlue || []).length;
 }
 
 function updateStatusBar() {
@@ -493,11 +566,13 @@ function updateStatusBar() {
 
 // ============== CLICK HANDLER ==============
 
-canvas.addEventListener('click', (e) => {
+function handleCanvasInput(clientX, clientY) {
   if (!state) return;
   const rect = canvas.getBoundingClientRect();
-  const mx = e.clientX - rect.left;
-  const my = e.clientY - rect.top;
+  const scaleX = BOARD_SIZE / rect.width;
+  const scaleY = BOARD_SIZE / rect.height;
+  const mx = (clientX - rect.left) * scaleX;
+  const my = (clientY - rect.top) * scaleY;
   const col = Math.floor(mx / CELL);
   const row = Math.floor(my / CELL);
   if (row < 0 || row >= 10 || col < 0 || col >= 10) return;
@@ -509,7 +584,19 @@ canvas.addEventListener('click', (e) => {
   } else if (state.phase === 'playing') {
     handlePlayClick(row, col);
   }
+}
+
+canvas.addEventListener('click', (e) => {
+  handleCanvasInput(e.clientX, e.clientY);
 });
+
+canvas.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  if (e.changedTouches.length > 0) {
+    const touch = e.changedTouches[0];
+    handleCanvasInput(touch.clientX, touch.clientY);
+  }
+}, { passive: false });
 
 function handlePlacementClick(row, col) {
   if (state.ready) return; // locked in
