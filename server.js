@@ -164,7 +164,7 @@ function getBoardForPlayer(playerColor) {
 }
 
 function getBoardForSpectator() {
-  // Spectators see all pieces
+  // Spectators see piece positions but not their values (all hidden)
   const view = [];
   for (let r = 0; r < 10; r++) {
     view[r] = [];
@@ -172,7 +172,7 @@ function getBoardForSpectator() {
       const cell = gameState.board[r][c];
       view[r][c] = {
         type: cell.type,
-        figure: cell.figure ? { ...cell.figure, hidden: false } : null
+        figure: cell.figure ? { color: cell.figure.color, key: 'unknown', hidden: true } : null
       };
     }
   }
