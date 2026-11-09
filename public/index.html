@@ -337,6 +337,25 @@ let selectedFigure = null; // figure key selected from sidebar (placement)
 let selectedCell = null;   // [row, col] selected on board (playing)
 let allowedMoves = [];     // [[row,col], ...] for currently selected piece
 
+// ============== BOARD ORIENTATION ==============
+
+// Returns true if the board should be flipped (blue player sees their pieces at bottom)
+function shouldFlip() {
+  return state && state.role === 'player' && state.myColor === 'blue';
+}
+
+// Convert logical board row/col to display row/col
+function toDisplay(r, c) {
+  if (shouldFlip()) return [9 - r, 9 - c];
+  return [r, c];
+}
+
+// Convert display row/col back to logical board row/col
+function fromDisplay(dr, dc) {
+  if (shouldFlip()) return [9 - dr, 9 - dc];
+  return [dr, dc];
+}
+
 // ============== DRAWING ==============
 
 function drawBoard() {
@@ -345,8 +364,9 @@ function drawBoard() {
 
   for (let r = 0; r < 10; r++) {
     for (let c = 0; c < 10; c++) {
-      const x = c * CELL;
-      const y = r * CELL;
+      const [dr, dc] = toDisplay(r, c);
+      const x = dc * CELL;
+      const y = dr * CELL;
       const cell = state.board[r][c];
 
       // Ground
@@ -573,9 +593,12 @@ function handleCanvasInput(clientX, clientY) {
   const scaleY = BOARD_SIZE / rect.height;
   const mx = (clientX - rect.left) * scaleX;
   const my = (clientY - rect.top) * scaleY;
-  const col = Math.floor(mx / CELL);
-  const row = Math.floor(my / CELL);
-  if (row < 0 || row >= 10 || col < 0 || col >= 10) return;
+  const displayCol = Math.floor(mx / CELL);
+  const displayRow = Math.floor(my / CELL);
+  if (displayRow < 0 || displayRow >= 10 || displayCol < 0 || displayCol >= 10) return;
+
+  // Convert display coordinates to logical board coordinates
+  const [row, col] = fromDisplay(displayRow, displayCol);
 
   if (state.role === 'spectator') return;
 
