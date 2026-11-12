@@ -131,7 +131,7 @@ function getBoardForPlayer(playerColor) {
   // Returns board state with opponent pieces handled based on game phase:
   // - placement (opponent not ready): opponent pieces completely invisible
   // - placement (opponent ready): opponent pieces shown as '?'
-  // - playing/gameover: opponent pieces shown as '?' unless revealed by combat
+  // - playing/gameover: opponent pieces always shown as '?'
   const view = [];
   const isPlacement = gameState.phase === 'placement';
 
@@ -153,13 +153,8 @@ function getBoardForPlayer(playerColor) {
         if (isPlacement && !opponentReady) {
           // Opponent still placing - hide completely
           view[r][c] = { type: cell.type, figure: null };
-        } else if (cell.figure.revealed) {
-          // This piece was involved in combat - show its identity
-          view[r][c] = {
-            type: cell.type,
-            figure: { ...cell.figure, hidden: false }
-          };
         } else {
+          // Always show opponent pieces as hidden ('?')
           view[r][c] = {
             type: cell.type,
             figure: { color: cell.figure.color, key: 'unknown', hidden: true }
@@ -232,10 +227,6 @@ function executeMove(fromRow, fromCol, toRow, toCol) {
   if (target) {
     const result = resolveCombat(attacker, target);
     combatResult = { result, attacker: attackerFig, defender: defenderFig };
-
-    // Mark both pieces as revealed (opponent can see identity after combat)
-    attacker.revealed = true;
-    target.revealed = true;
 
     if (result === 'attacker_wins') {
       if (target.color === 'red') gameState.capturedRed.push(defenderFig);
