@@ -61,6 +61,9 @@ function createFreshGame() {
   };
 }
 
+let disconnectTimers = {}; // color -> timeout handle
+let gameResetTimer = null; // timer for auto-reset after gameover
+
 function resetGame() {
   // Clear all pending timers
   for (const color of Object.keys(disconnectTimers)) {
@@ -318,8 +321,6 @@ function getOpponentReady(socketId) {
 // ============== SOCKET.IO ==============
 
 const RECONNECT_GRACE_MS = 15000; // 15 seconds to reconnect
-let disconnectTimers = {}; // color -> timeout handle
-let gameResetTimer = null; // timer for auto-reset after gameover
 
 function scheduleGameReset() {
   if (gameResetTimer) clearTimeout(gameResetTimer);
