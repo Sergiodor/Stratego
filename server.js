@@ -57,6 +57,8 @@ function createFreshGame() {
     capturedBlue: [],
     winner: null,
     colorAssignment: null, // { first: 'red'|'blue', second: 'red'|'blue' }
+    disconnectedColor: null,   // color of disconnected player (during grace period)
+    reconnectDeadline: null,   // timestamp when grace period expires
   };
 }
 
@@ -299,6 +301,8 @@ function sendStateToAll() {
         capturedRed: gameState.capturedRed,
         capturedBlue: gameState.capturedBlue,
         winner: gameState.winner,
+        disconnectedColor: gameState.disconnectedColor,
+        reconnectDeadline: gameState.reconnectDeadline,
       });
     }
   }
@@ -315,6 +319,8 @@ function sendStateToAll() {
         capturedRed: gameState.capturedRed,
         capturedBlue: gameState.capturedBlue,
         winner: gameState.winner,
+        disconnectedColor: gameState.disconnectedColor,
+        reconnectDeadline: gameState.reconnectDeadline,
       });
     }
   }
@@ -329,12 +335,55 @@ function getOpponentReady(socketId) {
 
 // ============== SOCKET.IO ==============
 
+const RECONNECT_GRACE_MS = 15000; // 15 seconds to reconnect
+let gameResetTimer = null; // timer for auto-reset after gameover
+
+function scheduleGameReset() {
+  if (gameResetTimer) clearTimeout(gameResetTimer);
+  gameResetTimer = setTimeout(() => {
+    gameResetTimer = null;
+    console.log('Auto-resetting game for new round...');
+    resetGame();
+    // Notify all connected clients to reload
+    for (const sid of Array.from(io.sockets.sockets.keys())) {
+      const sock = io.sockets.sockets.get(sid);
+      if (sock) sock.emit('game_reset');
+    }
+  }, 10000); // 10 seconds after gameover
+}
+
 io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
 
   const playerCount = Object.keys(gameState.players).length;
+  const activePlayers = Object.values(gameState.players).map(p => p.color);
 
-  if (playerCount < 2 && (gameState.phase === 'waiting' || gameState.phase === 'placement')) {
+  // Check if there's a vacant player slot (someone disconnected)
+  let vacantColor = null;
+  for (const c of ['red', 'blue']) {
+    if (gameState.colorAssignment && !activePlayers.includes(c)) {
+      // This color has no active socket
+      if (c === gameState.colorAssignment.first || c === gameState.colorAssignment.second) {
+        vacantColor = c;
+        break;
+      }
+    }
+  }
+
+  if (vacantColor && gameState.phase !== 'waiting' && gameState.phase !== 'gameover') {
+    // Reconnecting player - reclaim their color
+    if (disconnectTimers[vacantColor]) {
+      clearTimeout(disconnectTimers[vacantColor]);
+      delete disconnectTimers[vacantColor];
+    }
+    gameState.disconnectedColor = null;
+    gameState.reconnectDeadline = null;
+    // Restore ready state: if game is playing they were ready; if placement, reset ready
+    const wasReady = gameState.phase === 'playing';
+    gameState.players[socket.id] = { color: vacantColor, ready: wasReady };
+    gameState.playerOrder.push(socket.id);
+    console.log(`Player reconnected as: ${vacantColor}`);
+  } else if (playerCount < 2 && (gameState.phase === 'waiting' || gameState.phase === 'placement')) {
     // Assign as player
     if (playerCount === 0) {
       // First player - randomly assign colors
@@ -490,9 +539,12 @@ io.on('connection', (socket) => {
     }
 
     sendStateToAll();
-  });
 
-  // --- RESTART ---
+    // If the game ended from this move, schedule auto-reset
+    if (gameState.phase === 'gameover') {
+      scheduleGameReset();
+    }
+  });
   socket.on('restart', () => {
     resetGame();
     // Re-assign all connected sockets
@@ -510,22 +562,37 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`);
     if (gameState.players[socket.id]) {
+      const disconnectedColor = gameState.players[socket.id].color;
       delete gameState.players[socket.id];
       const idx = gameState.playerOrder.indexOf(socket.id);
       if (idx !== -1) gameState.playerOrder.splice(idx, 1);
 
-      // If a player leaves during a game, end it
-      if (gameState.phase === 'playing') {
-        const remainingPlayers = Object.values(gameState.players);
-        if (remainingPlayers.length === 1) {
-          gameState.phase = 'gameover';
-          gameState.winner = remainingPlayers[0].color;
-          sendStateToAll();
-        }
-      } else if (gameState.phase === 'placement') {
-        // Revert to waiting if only 1 player left
-        if (Object.keys(gameState.players).length < 2) {
-          // Keep the remaining player's placement, just wait for another
+      if (gameState.phase === 'playing' || gameState.phase === 'placement') {
+        // Start grace period - allow reconnection
+        gameState.disconnectedColor = disconnectedColor;
+        gameState.reconnectDeadline = Date.now() + RECONNECT_GRACE_MS;
+        console.log(`Player ${disconnectedColor} disconnected. Waiting ${RECONNECT_GRACE_MS/1000}s for reconnect...`);
+        sendStateToAll();
+
+        disconnectTimers[disconnectedColor] = setTimeout(() => {
+          delete disconnectTimers[disconnectedColor];
+          gameState.disconnectedColor = null;
+          gameState.reconnectDeadline = null;
+          // Still no reconnection - declare winner
+          const remainingPlayers = Object.values(gameState.players);
+          if (remainingPlayers.length === 1 && gameState.phase !== 'gameover') {
+            gameState.phase = 'gameover';
+            gameState.winner = remainingPlayers[0].color;
+            console.log(`Player ${disconnectedColor} did not reconnect. ${gameState.winner} wins.`);
+            sendStateToAll();
+            scheduleGameReset();
+          } else if (remainingPlayers.length === 0) {
+            resetGame();
+          }
+        }, RECONNECT_GRACE_MS);
+      } else if (gameState.phase === 'waiting') {
+        if (Object.keys(gameState.players).length === 0) {
+          resetGame();
         }
       }
     } else {

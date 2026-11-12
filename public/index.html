@@ -336,6 +336,7 @@ let state = null;       // latest game_state from server
 let selectedFigure = null; // figure key selected from sidebar (placement)
 let selectedCell = null;   // [row, col] selected on board (playing)
 let allowedMoves = [];     // [[row,col], ...] for currently selected piece
+let gameoverTimestamp = null; // when gameover was first detected (for reset countdown)
 
 // ============== BOARD ORIENTATION ==============
 
@@ -543,17 +544,42 @@ function updateSidebar() {
   document.getElementById('captured-blue-count').textContent = (state.capturedBlue || []).length;
 }
 
+let countdownInterval = null;
+
+function startCountdown() {
+  stopCountdown();
+  countdownInterval = setInterval(() => updateStatusBar(), 500);
+}
+
+function stopCountdown() {
+  if (countdownInterval) {
+    clearInterval(countdownInterval);
+    countdownInterval = null;
+  }
+}
+
 function updateStatusBar() {
   const bar = document.getElementById('status-bar');
   if (!state) { bar.textContent = 'Connecting...'; return; }
 
+  // Disconnect countdown takes priority over normal status
+  if (state.disconnectedColor && state.reconnectDeadline && state.phase !== 'gameover') {
+    const remaining = Math.max(0, Math.ceil((state.reconnectDeadline - Date.now()) / 1000));
+    const dcColor = state.disconnectedColor;
+    bar.innerHTML = `<span style="color:${COLORS[dcColor]}">${dcColor.toUpperCase()}</span> disconnected - reconnecting in <span style="color:#e94560">${remaining}s</span>...`;
+    if (remaining > 0 && !countdownInterval) startCountdown();
+    return;
+  }
+
   if (state.phase === 'waiting') {
+    stopCountdown();
     if (state.role === 'player') {
       bar.innerHTML = `You are <span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - Waiting for opponent...`;
     } else {
       bar.textContent = 'Spectating - Waiting for players...';
     }
   } else if (state.phase === 'placement') {
+    stopCountdown();
     if (state.role === 'player') {
       if (state.ready) {
         bar.innerHTML = `<span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - Ready! Waiting for opponent... ${state.opponentReady ? '(Opponent ready too!)' : ''}`;
@@ -565,6 +591,7 @@ function updateStatusBar() {
       bar.textContent = 'Spectating - Players are placing figures...';
     }
   } else if (state.phase === 'playing') {
+    stopCountdown();
     if (state.role === 'player') {
       const isMyTurn = state.turn === state.myColor;
       bar.innerHTML = `<span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - ${isMyTurn ? "YOUR TURN - Select a piece to move" : "Opponent's turn..."}`;
@@ -572,15 +599,24 @@ function updateStatusBar() {
       bar.innerHTML = `Spectating - <span style="color:${COLORS[state.turn]}">${state.turn?.toUpperCase()}</span>'s turn`;
     }
   } else if (state.phase === 'gameover') {
+    let msg = '';
     if (state.role === 'player') {
       if (state.winner === state.myColor) {
-        bar.innerHTML = `<span style="color:#27ae60">YOU WIN!</span>`;
+        msg = `<span style="color:#27ae60">YOU WIN!</span>`;
       } else {
-        bar.innerHTML = `<span style="color:#e74c3c">YOU LOSE!</span> <span style="color:${COLORS[state.winner]}">${state.winner?.toUpperCase()}</span> wins!`;
+        msg = `<span style="color:#e74c3c">YOU LOSE!</span> <span style="color:${COLORS[state.winner]}">${state.winner?.toUpperCase()}</span> wins!`;
       }
     } else {
-      bar.innerHTML = `Game Over - <span style="color:${COLORS[state.winner]}">${state.winner?.toUpperCase()}</span> wins!`;
+      msg = `Game Over - <span style="color:${COLORS[state.winner]}">${state.winner?.toUpperCase()}</span> wins!`;
     }
+    // Show reset countdown (server resets 10s after gameover)
+    if (gameoverTimestamp) {
+      const elapsed = (Date.now() - gameoverTimestamp) / 1000;
+      const resetIn = Math.max(0, Math.ceil(10 - elapsed));
+      msg += ` <span style="color:#888">New game in ${resetIn}s</span>`;
+      if (!countdownInterval) startCountdown();
+    }
+    bar.innerHTML = msg;
   }
 }
 
@@ -727,12 +763,42 @@ function showCombatOverlay(data) {
   setTimeout(() => overlay.classList.remove('show'), 2000);
 }
 
+// ============== SOUNDS ==============
+
+const sounds = {
+  bomb: new Audio('/sounds/bomb_1.mp3'),
+  kill: new Audio('/sounds/explosion_1.mp3'),
+};
+
+function playCombatSound(data) {
+  // Non-miner attacks a bomb (both_die): bomb sound
+  if (data.defender.rate === 100 && data.attacker.rate !== 3) {
+    sounds.bomb.currentTime = 0;
+    sounds.bomb.play().catch(() => {});
+    return;
+  }
+  // A figure is killed by another figure (attacker or defender wins)
+  if (data.result === 'attacker_wins' || data.result === 'defender_wins') {
+    sounds.kill.currentTime = 0;
+    sounds.kill.play().catch(() => {});
+  }
+}
+
 // ============== SOCKET EVENTS ==============
 
 socket.on('game_state', (data) => {
+  const prevPhase = state ? state.phase : null;
   state = data;
   selectedCell = null;
   allowedMoves = [];
+
+  // Track when gameover first occurs for reset countdown
+  if (state.phase === 'gameover' && prevPhase !== 'gameover') {
+    gameoverTimestamp = Date.now();
+  } else if (state.phase !== 'gameover') {
+    gameoverTimestamp = null;
+    stopCountdown();
+  }
 
   // Auto-deselect figure if depleted
   if (state.phase === 'placement' && selectedFigure) {
@@ -753,6 +819,7 @@ socket.on('allowed_moves', (data) => {
 });
 
 socket.on('combat_result', (data) => {
+  playCombatSound(data);
   showCombatOverlay(data);
 });
 
