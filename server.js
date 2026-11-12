@@ -50,7 +50,6 @@ function createFreshGame() {
     board,
     players: {},       // socketId -> { color, ready }
     playerOrder: [],   // [socketId1, socketId2] - first is player1
-    spectators: [],    // [socketId, ...]
     phase: 'waiting',  // waiting | placement | playing | gameover
     turn: null,        // 'red' or 'blue'
     capturedRed: [],
@@ -63,6 +62,15 @@ function createFreshGame() {
 }
 
 function resetGame() {
+  // Clear all pending timers
+  for (const color of Object.keys(disconnectTimers)) {
+    clearTimeout(disconnectTimers[color]);
+  }
+  disconnectTimers = {};
+  if (gameResetTimer) {
+    clearTimeout(gameResetTimer);
+    gameResetTimer = null;
+  }
   gameState = createFreshGame();
 }
 
@@ -165,20 +173,8 @@ function getBoardForPlayer(playerColor) {
   return view;
 }
 
-function getBoardForSpectator() {
-  // Spectators see piece positions but not their values (all hidden)
-  const view = [];
-  for (let r = 0; r < 10; r++) {
-    view[r] = [];
-    for (let c = 0; c < 10; c++) {
-      const cell = gameState.board[r][c];
-      view[r][c] = {
-        type: cell.type,
-        figure: cell.figure ? { color: cell.figure.color, key: 'unknown', hidden: true } : null
-      };
-    }
-  }
-  return view;
+function isValidCoord(v) {
+  return Number.isInteger(v) && v >= 0 && v < 10;
 }
 
 function getAllowedMoves(row, col) {
@@ -233,6 +229,10 @@ function executeMove(fromRow, fromCol, toRow, toCol) {
   if (target) {
     const result = resolveCombat(attacker, target);
     combatResult = { result, attacker: attackerFig, defender: defenderFig };
+
+    // Mark both pieces as revealed (opponent can see identity after combat)
+    attacker.revealed = true;
+    target.revealed = true;
 
     if (result === 'attacker_wins') {
       if (target.color === 'red') gameState.capturedRed.push(defenderFig);
@@ -306,24 +306,6 @@ function sendStateToAll() {
       });
     }
   }
-  for (const sid of gameState.spectators) {
-    const sock = io.sockets.sockets.get(sid);
-    if (sock) {
-      sock.emit('game_state', {
-        board: getBoardForSpectator(),
-        phase: gameState.phase,
-        turn: gameState.turn,
-        myColor: null,
-        role: 'spectator',
-        remaining: {},
-        capturedRed: gameState.capturedRed,
-        capturedBlue: gameState.capturedBlue,
-        winner: gameState.winner,
-        disconnectedColor: gameState.disconnectedColor,
-        reconnectDeadline: gameState.reconnectDeadline,
-      });
-    }
-  }
 }
 
 function getOpponentReady(socketId) {
@@ -336,6 +318,7 @@ function getOpponentReady(socketId) {
 // ============== SOCKET.IO ==============
 
 const RECONNECT_GRACE_MS = 15000; // 15 seconds to reconnect
+let disconnectTimers = {}; // color -> timeout handle
 let gameResetTimer = null; // timer for auto-reset after gameover
 
 function scheduleGameReset() {
@@ -400,9 +383,11 @@ io.on('connection', (socket) => {
       console.log(`Player 2 assigned: ${gameState.colorAssignment.second}`);
     }
   } else {
-    // Spectator
-    gameState.spectators.push(socket.id);
-    console.log(`Spectator connected: ${socket.id}`);
+    // No room - reject connection
+    console.log(`Connection rejected (game full): ${socket.id}`);
+    socket.emit('rejected', { reason: 'Game is full. Only 2 players allowed.' });
+    socket.disconnect(true);
+    return;
   }
 
   sendStateToAll();
@@ -410,13 +395,14 @@ io.on('connection', (socket) => {
   // --- PLACEMENT ---
   socket.on('place_figure', (data) => {
     const { figureKey, row, col } = data;
+    if (!isValidCoord(row) || !isValidCoord(col)) return;
+    if (!figureKey || !FIGURES[figureKey]) return;
     const color = getPlayerColor(socket.id);
     if (!color || gameState.phase !== 'placement') return;
     if (gameState.players[socket.id].ready) return; // already locked in
 
     const allowedRows = getPlacementRows(color);
     if (!allowedRows.includes(row)) return;
-    if (col < 0 || col >= 10) return;
     if (gameState.board[row][col].type === 'water') return;
 
     // Check if player has remaining of this figure
@@ -442,6 +428,7 @@ io.on('connection', (socket) => {
 
   socket.on('remove_figure', (data) => {
     const { row, col } = data;
+    if (!isValidCoord(row) || !isValidCoord(col)) return;
     const color = getPlayerColor(socket.id);
     if (!color || gameState.phase !== 'placement') return;
     if (gameState.players[socket.id].ready) return;
@@ -481,6 +468,7 @@ io.on('connection', (socket) => {
   // --- MOVEMENT ---
   socket.on('get_moves', (data) => {
     const { row, col } = data;
+    if (!isValidCoord(row) || !isValidCoord(col)) return;
     const color = getPlayerColor(socket.id);
     if (!color || gameState.phase !== 'playing') return;
     if (gameState.turn !== color) return;
@@ -494,6 +482,7 @@ io.on('connection', (socket) => {
 
   socket.on('move', (data) => {
     const { fromRow, fromCol, toRow, toCol } = data;
+    if (!isValidCoord(fromRow) || !isValidCoord(fromCol) || !isValidCoord(toRow) || !isValidCoord(toCol)) return;
     const color = getPlayerColor(socket.id);
     if (!color || gameState.phase !== 'playing') return;
     if (gameState.turn !== color) return;
@@ -515,17 +504,6 @@ io.on('connection', (socket) => {
     // Send combat result to both players so they can show it briefly
     if (combatResult) {
       for (const [sid, player] of Object.entries(gameState.players)) {
-        const sock = io.sockets.sockets.get(sid);
-        if (sock) {
-          sock.emit('combat_result', {
-            fromRow, fromCol, toRow, toCol,
-            result: combatResult.result,
-            attacker: combatResult.attacker,
-            defender: combatResult.defender,
-          });
-        }
-      }
-      for (const sid of gameState.spectators) {
         const sock = io.sockets.sockets.get(sid);
         if (sock) {
           sock.emit('combat_result', {
@@ -595,9 +573,6 @@ io.on('connection', (socket) => {
           resetGame();
         }
       }
-    } else {
-      const idx = gameState.spectators.indexOf(socket.id);
-      if (idx !== -1) gameState.spectators.splice(idx, 1);
     }
     sendStateToAll();
   });

@@ -573,41 +573,25 @@ function updateStatusBar() {
 
   if (state.phase === 'waiting') {
     stopCountdown();
-    if (state.role === 'player') {
-      bar.innerHTML = `You are <span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - Waiting for opponent...`;
-    } else {
-      bar.textContent = 'Spectating - Waiting for players...';
-    }
+    bar.innerHTML = `You are <span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - Waiting for opponent...`;
   } else if (state.phase === 'placement') {
     stopCountdown();
-    if (state.role === 'player') {
-      if (state.ready) {
-        bar.innerHTML = `<span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - Ready! Waiting for opponent... ${state.opponentReady ? '(Opponent ready too!)' : ''}`;
-      } else {
-        const rem = state.remaining ? Object.values(state.remaining).reduce((a,b) => a+b, 0) : 0;
-        bar.innerHTML = `<span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - Place your figures! (${rem} remaining) - Click a figure, then click on the board`;
-      }
+    if (state.ready) {
+      bar.innerHTML = `<span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - Ready! Waiting for opponent... ${state.opponentReady ? '(Opponent ready too!)' : ''}`;
     } else {
-      bar.textContent = 'Spectating - Players are placing figures...';
+      const rem = state.remaining ? Object.values(state.remaining).reduce((a,b) => a+b, 0) : 0;
+      bar.innerHTML = `<span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - Place your figures! (${rem} remaining) - Click a figure, then click on the board`;
     }
   } else if (state.phase === 'playing') {
     stopCountdown();
-    if (state.role === 'player') {
-      const isMyTurn = state.turn === state.myColor;
-      bar.innerHTML = `<span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - ${isMyTurn ? "YOUR TURN - Select a piece to move" : "Opponent's turn..."}`;
-    } else {
-      bar.innerHTML = `Spectating - <span style="color:${COLORS[state.turn]}">${state.turn?.toUpperCase()}</span>'s turn`;
-    }
+    const isMyTurn = state.turn === state.myColor;
+    bar.innerHTML = `<span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - ${isMyTurn ? "YOUR TURN - Select a piece to move" : "Opponent's turn..."}`;
   } else if (state.phase === 'gameover') {
     let msg = '';
-    if (state.role === 'player') {
-      if (state.winner === state.myColor) {
-        msg = `<span style="color:#27ae60">YOU WIN!</span>`;
-      } else {
-        msg = `<span style="color:#e74c3c">YOU LOSE!</span> <span style="color:${COLORS[state.winner]}">${state.winner?.toUpperCase()}</span> wins!`;
-      }
+    if (state.winner === state.myColor) {
+      msg = `<span style="color:#27ae60">YOU WIN!</span>`;
     } else {
-      msg = `Game Over - <span style="color:${COLORS[state.winner]}">${state.winner?.toUpperCase()}</span> wins!`;
+      msg = `<span style="color:#e74c3c">YOU LOSE!</span> <span style="color:${COLORS[state.winner]}">${state.winner?.toUpperCase()}</span> wins!`;
     }
     // Show reset countdown (server resets 10s after gameover)
     if (gameoverTimestamp) {
@@ -636,8 +620,6 @@ function handleCanvasInput(clientX, clientY) {
   // Convert display coordinates to logical board coordinates
   const [row, col] = fromDisplay(displayRow, displayCol);
 
-  if (state.role === 'spectator') return;
-
   if (state.phase === 'placement') {
     handlePlacementClick(row, col);
   } else if (state.phase === 'playing') {
@@ -645,12 +627,20 @@ function handleCanvasInput(clientX, clientY) {
   }
 }
 
+let usedTouch = false; // flag to prevent double-fire from touch + synthesized click
+
 canvas.addEventListener('click', (e) => {
+  if (usedTouch) { usedTouch = false; return; }
   handleCanvasInput(e.clientX, e.clientY);
 });
 
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault(); // prevents scroll and zoom on canvas
+}, { passive: false });
+
 canvas.addEventListener('touchend', (e) => {
   e.preventDefault();
+  usedTouch = true;
   if (e.changedTouches.length > 0) {
     const touch = e.changedTouches[0];
     handleCanvasInput(touch.clientX, touch.clientY);
@@ -727,6 +717,8 @@ function handlePlayClick(row, col) {
 
 // ============== COMBAT OVERLAY ==============
 
+let combatOverlayTimer = null;
+
 function showCombatOverlay(data) {
   const overlay = document.getElementById('combat-overlay');
   const attBox = document.getElementById('combat-attacker');
@@ -759,8 +751,13 @@ function showCombatOverlay(data) {
     resultText.textContent = 'Both pieces destroyed!';
   }
 
+  // Clear any previous timer to prevent premature dismissal
+  if (combatOverlayTimer) clearTimeout(combatOverlayTimer);
   overlay.classList.add('show');
-  setTimeout(() => overlay.classList.remove('show'), 2000);
+  combatOverlayTimer = setTimeout(() => {
+    overlay.classList.remove('show');
+    combatOverlayTimer = null;
+  }, 2000);
 }
 
 // ============== SOUNDS ==============
@@ -777,8 +774,8 @@ function playCombatSound(data) {
     sounds.bomb.play().catch(() => {});
     return;
   }
-  // A figure is killed by another figure (attacker or defender wins)
-  if (data.result === 'attacker_wins' || data.result === 'defender_wins') {
+  // Any combat where at least one figure dies
+  if (data.result === 'attacker_wins' || data.result === 'defender_wins' || data.result === 'both_die') {
     sounds.kill.currentTime = 0;
     sounds.kill.play().catch(() => {});
   }
@@ -825,6 +822,12 @@ socket.on('combat_result', (data) => {
 
 socket.on('game_reset', () => {
   window.location.reload();
+});
+
+socket.on('rejected', (data) => {
+  document.getElementById('status-bar').textContent = data.reason || 'Game is full.';
+  document.getElementById('gameCanvas').style.opacity = '0.5';
+  document.getElementById('gameCanvas').style.pointerEvents = 'none';
 });
 
 socket.on('disconnect', () => {
