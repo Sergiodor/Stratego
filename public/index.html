@@ -25,13 +25,54 @@
     background: #16213e;
     border-bottom: 2px solid #0f3460;
     min-height: 44px;
+    position: relative;
+  }
+  #lang-switcher {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    gap: 0;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    overflow: hidden;
+    font-size: 12px;
+  }
+  #lang-switcher button {
+    background: #1a1a2e;
+    color: #888;
+    border: none;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 12px;
+    transition: all 0.15s;
+  }
+  #lang-switcher button:hover {
+    background: #0f3460;
+    color: #ccc;
+  }
+  #lang-switcher button.active {
+    background: #e94560;
+    color: #fff;
+  }
+  .waiting-timer {
+    display: inline-block;
+    animation: pulse-timer 1.5s ease-in-out infinite;
+    margin-right: 6px;
+    font-size: 18px;
+  }
+  @keyframes pulse-timer {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
   }
   #main {
     display: flex;
     gap: 20px;
     margin-top: 15px;
     align-items: flex-start;
-    padding: 0 10px;
+    padding: 0 10px 20px;
     width: 100%;
     max-width: 760px;
     justify-content: center;
@@ -39,6 +80,27 @@
   #board-container {
     position: relative;
     flex-shrink: 0;
+  }
+  #board-column {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  #captured-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    width: 500px;
+  }
+  .captured-panel {
+    flex: 1;
+    min-width: 0;
+  }
+  .captured-panel h3 {
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   canvas {
     border: 3px solid #0f3460;
@@ -124,12 +186,45 @@
   }
   .captured-list {
     font-size: 12px;
-    max-height: 120px;
+    max-height: 200px;
     overflow-y: auto;
   }
   .captured-list div {
     padding: 2px 4px;
     border-bottom: 1px solid #0f346044;
+  }
+  .captured-roster {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px 0;
+  }
+  .roster-item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: bold;
+    border: 1px solid #0f346066;
+    background: #1a1a2e;
+    color: #555;
+    opacity: 0.35;
+    transition: all 0.3s;
+  }
+  .roster-item.captured {
+    opacity: 1;
+    color: #fff;
+  }
+  .roster-item.captured.red {
+    background: #c0392b;
+    border-color: #e74c3c;
+  }
+  .roster-item.captured.blue {
+    background: #2471a3;
+    border-color: #3498db;
   }
   #btn-container {
     text-align: center;
@@ -214,6 +309,15 @@
       width: 100%;
       max-width: 500px;
     }
+    #board-column {
+      width: 100%;
+      max-width: 500px;
+      align-items: center;
+    }
+    #captured-row {
+      width: 100%;
+      max-width: 500px;
+    }
     canvas {
       width: 100%;
       height: auto;
@@ -236,8 +340,9 @@
     }
     .figure-btn .fig-label { font-size: 14px; }
     .figure-btn .fig-name { font-size: 7px; }
-    .captured-list { max-height: 80px; }
+    .captured-list { max-height: 160px; }
     #status-bar { font-size: 14px; padding: 8px 6px; }
+    #lang-switcher button { padding: 3px 7px; font-size: 11px; }
     .combat-fig { width: 60px; height: 60px; }
     .combat-figures { gap: 14px; }
     #combat-box { padding: 18px 14px; min-width: 240px; }
@@ -259,11 +364,29 @@
 </head>
 <body>
 
-<div id="status-bar">Connecting...</div>
+<div id="status-bar">
+  <span id="status-text">Connecting...</span>
+  <div id="lang-switcher">
+    <button id="lang-en" class="active" onclick="setLang('en')">EN</button>
+    <button id="lang-ua" onclick="setLang('ua')">UA</button>
+  </div>
+</div>
 
 <div id="main">
-  <div id="board-container">
-    <canvas id="gameCanvas" width="500" height="500"></canvas>
+  <div id="board-column">
+    <div id="board-container">
+      <canvas id="gameCanvas" width="500" height="500"></canvas>
+    </div>
+    <div id="captured-row">
+      <div class="panel captured-panel" id="captured-my-panel">
+        <h3 id="captured-my-header"></h3>
+        <div class="captured-list" id="captured-my"></div>
+      </div>
+      <div class="panel captured-panel" id="captured-opp-panel">
+        <h3 id="captured-opp-header"></h3>
+        <div class="captured-list" id="captured-opp"></div>
+      </div>
+    </div>
   </div>
   <div id="sidebar">
     <div class="panel" id="figures-panel">
@@ -271,14 +394,6 @@
       <div id="figures-grid"></div>
     </div>
     <div id="btn-container"></div>
-    <div class="panel" id="captured-red-panel">
-      <h3 style="color: OrangeRed;">Captured Red (<span id="captured-red-count">0</span>)</h3>
-      <div class="captured-list" id="captured-red"></div>
-    </div>
-    <div class="panel" id="captured-blue-panel">
-      <h3 style="color: MediumTurquoise;">Captured Blue (<span id="captured-blue-count">0</span>)</h3>
-      <div class="captured-list" id="captured-blue"></div>
-    </div>
   </div>
 </div>
 
@@ -298,6 +413,117 @@
 <script>
 const socket = io();
 
+// ============== TRANSLATIONS ==============
+
+const TRANSLATIONS = {
+  en: {
+    connecting: 'Connecting...',
+    youAre: 'You are',
+    waitingForOpponent: 'Waiting for opponent...',
+    ready: 'Ready!',
+    waitingForOpponentReady: 'Waiting for opponent...',
+    opponentReadyToo: '(Opponent ready too!)',
+    placeFigures: 'Place your figures!',
+    remaining: 'remaining',
+    clickFigureThenBoard: 'Click a figure, then click on the board',
+    yourTurn: 'YOUR TURN - Select a piece to move',
+    opponentTurn: "Opponent's turn...",
+    youWin: 'YOU WIN!',
+    youLose: 'YOU LOSE!',
+    wins: 'wins!',
+    newGameIn: 'New game in',
+    disconnected: 'disconnected - reconnecting in',
+    disconnectedFromServer: 'Disconnected from server. Refresh to reconnect.',
+    gameIsFull: 'Game is full.',
+    figures: 'Figures',
+    capturedRed: 'Captured Red',
+    capturedBlue: 'Captured Blue',
+    cancelReady: 'Cancel Ready',
+    combat: 'Combat!',
+    defeats: 'defeats',
+    bothDestroyed: 'Both pieces destroyed!',
+    // Figure names
+    fig_bomb: 'Bomb',
+    fig_flag: 'Flag',
+    fig_spy: 'Spy',
+    fig_scout: 'Scout',
+    fig_miner: 'Miner',
+    fig_sergeant: 'Sergeant',
+    fig_lieutenant: 'Lieutenant',
+    fig_captain: 'Captain',
+    fig_major: 'Major',
+    fig_colonel: 'Colonel',
+    fig_general: 'General',
+    fig_marshal: 'Marshal',
+  },
+  ua: {
+    connecting: "З'єднання...",
+    youAre: 'Ви',
+    waitingForOpponent: 'Очікування суперника...',
+    ready: 'Готовий!',
+    waitingForOpponentReady: 'Очікування суперника...',
+    opponentReadyToo: '(Суперник теж готовий!)',
+    placeFigures: 'Розставте фігури!',
+    remaining: 'залишилось',
+    clickFigureThenBoard: 'Оберіть фігуру, потім натисніть на поле',
+    yourTurn: 'ВАШ ХІД - Оберіть фігуру для ходу',
+    opponentTurn: 'Хід суперника...',
+    youWin: 'ВИ ПЕРЕМОГЛИ!',
+    youLose: 'ВИ ПРОГРАЛИ!',
+    wins: 'переміг!',
+    newGameIn: 'Нова гра через',
+    disconnected: "від'єднався - перепідключення через",
+    disconnectedFromServer: "Від'єднано від сервера. Оновіть сторінку.",
+    gameIsFull: 'Гра заповнена.',
+    figures: 'Фігури',
+    capturedRed: 'Захоплені Червоні',
+    capturedBlue: 'Захоплені Сині',
+    cancelReady: 'Скасувати',
+    combat: 'Бій!',
+    defeats: 'перемагає',
+    bothDestroyed: 'Обидві фігури знищені!',
+    // Figure names
+    fig_bomb: 'Бомба',
+    fig_flag: 'Прапор',
+    fig_spy: 'Шпигун',
+    fig_scout: 'Розвідник',
+    fig_miner: 'Мінер',
+    fig_sergeant: 'Сержант',
+    fig_lieutenant: 'Лейтенант',
+    fig_captain: 'Капітан',
+    fig_major: 'Майор',
+    fig_colonel: 'Полковник',
+    fig_general: 'Генерал',
+    fig_marshal: 'Маршал',
+  }
+};
+
+let currentLang = localStorage.getItem('stratego-lang') || 'en';
+
+function t(key) {
+  return (TRANSLATIONS[currentLang] && TRANSLATIONS[currentLang][key]) || TRANSLATIONS.en[key] || key;
+}
+
+function figName(key) {
+  return t('fig_' + key);
+}
+
+function setLang(lang) {
+  currentLang = lang;
+  localStorage.setItem('stratego-lang', lang);
+  document.getElementById('lang-en').className = lang === 'en' ? 'active' : '';
+  document.getElementById('lang-ua').className = lang === 'ua' ? 'active' : '';
+  document.title = 'Stratego Online';
+  // Re-render all UI
+  updateSidebar();
+  updateStatusBar();
+  updateStaticLabels();
+}
+
+function updateStaticLabels() {
+  document.querySelector('#combat-box h2').textContent = t('combat');
+}
+
 const CELL = 50;
 const COLORS = {
   red: 'OrangeRed',
@@ -311,18 +537,18 @@ const COLORS = {
 };
 
 const FIGURE_DEFS = {
-  bomb:       { name: 'Bomb',       label: '\u{1F4A3}', rate: 100 },
-  flag:       { name: 'Flag',       label: '\u{1F6A9}', rate: 0 },
-  spy:        { name: 'Spy',        label: '1',  rate: 1 },
-  scout:      { name: 'Scout',      label: '2',  rate: 2 },
-  miner:      { name: 'Miner',      label: '3',  rate: 3 },
-  sergeant:   { name: 'Sergeant',   label: '4',  rate: 4 },
-  lieutenant: { name: 'Lieutenant', label: '5',  rate: 5 },
-  captain:    { name: 'Captain',    label: '6',  rate: 6 },
-  major:      { name: 'Major',      label: '7',  rate: 7 },
-  colonel:    { name: 'Colonel',    label: '8',  rate: 8 },
-  general:    { name: 'General',    label: '9',  rate: 9 },
-  marshal:    { name: 'Marshal',    label: '10', rate: 10 },
+  bomb:       { name: 'Bomb',       label: '\u{1F4A3}', rate: 100, count: 6 },
+  flag:       { name: 'Flag',       label: '\u{1F6A9}', rate: 0,   count: 1 },
+  spy:        { name: 'Spy',        label: '1',  rate: 1,  count: 1 },
+  scout:      { name: 'Scout',      label: '2',  rate: 2,  count: 8 },
+  miner:      { name: 'Miner',      label: '3',  rate: 3,  count: 5 },
+  sergeant:   { name: 'Sergeant',   label: '4',  rate: 4,  count: 4 },
+  lieutenant: { name: 'Lieutenant', label: '5',  rate: 5,  count: 4 },
+  captain:    { name: 'Captain',    label: '6',  rate: 6,  count: 4 },
+  major:      { name: 'Major',      label: '7',  rate: 7,  count: 3 },
+  colonel:    { name: 'Colonel',    label: '8',  rate: 8,  count: 2 },
+  general:    { name: 'General',    label: '9',  rate: 9,  count: 1 },
+  marshal:    { name: 'Marshal',    label: '10', rate: 10, count: 1 },
 };
 
 const FIGURE_ORDER = ['flag','bomb','spy','scout','miner','sergeant','lieutenant','captain','major','colonel','general','marshal'];
@@ -337,6 +563,18 @@ let selectedFigure = null; // figure key selected from sidebar (placement)
 let selectedCell = null;   // [row, col] selected on board (playing)
 let allowedMoves = [];     // [[row,col], ...] for currently selected piece
 let gameoverTimestamp = null; // when gameover was first detected (for reset countdown)
+
+// ============== MOVE ARROWS & ANIMATION ==============
+
+// Arrow state: { fromRow, fromCol, toRow, toCol } in logical coords, or null
+let oppLastMove = null;   // arrow for opponent's last move (shown until I move)
+
+// Animation state
+let moveAnimation = null; // { figure, fromX, fromY, toX, toY, startTime, duration, pendingState, pendingCombat }
+const ANIM_DURATION = 200; // ms
+
+// Revealed opponent figures (when they kill my figure, show their value until my next turn)
+let revealedFigures = new Set(); // Set of "row,col" strings for revealed opponent figures
 
 // ============== BOARD ORIENTATION ==============
 
@@ -358,6 +596,40 @@ function fromDisplay(dr, dc) {
 }
 
 // ============== DRAWING ==============
+
+function drawArrow(fromRow, fromCol, toRow, toCol, color) {
+  const [fdr, fdc] = toDisplay(fromRow, fromCol);
+  const [tdr, tdc] = toDisplay(toRow, toCol);
+  const fx = fdc * CELL + CELL / 2;
+  const fy = fdr * CELL + CELL / 2;
+  const tx = tdc * CELL + CELL / 2;
+  const ty = tdr * CELL + CELL / 2;
+
+  const angle = Math.atan2(ty - fy, tx - fx);
+  const headLen = 12;
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 3;
+  ctx.globalAlpha = 0.7;
+
+  // Line
+  ctx.beginPath();
+  ctx.moveTo(fx, fy);
+  ctx.lineTo(tx - Math.cos(angle) * headLen * 0.5, ty - Math.sin(angle) * headLen * 0.5);
+  ctx.stroke();
+
+  // Arrowhead
+  ctx.beginPath();
+  ctx.moveTo(tx, ty);
+  ctx.lineTo(tx - headLen * Math.cos(angle - Math.PI / 6), ty - headLen * Math.sin(angle - Math.PI / 6));
+  ctx.lineTo(tx - headLen * Math.cos(angle + Math.PI / 6), ty - headLen * Math.sin(angle + Math.PI / 6));
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
+}
 
 function drawBoard() {
   if (!state) return;
@@ -420,9 +692,13 @@ function drawBoard() {
         }
       }
 
-      // Draw figure
+      // Draw figure (skip if being animated)
       if (cell.figure) {
-        drawFigure(x, y, cell.figure);
+        const isAnimating = moveAnimation && moveAnimation.logicalTo &&
+          moveAnimation.logicalTo[0] === r && moveAnimation.logicalTo[1] === c;
+        if (!isAnimating) {
+          drawFigure(x, y, cell.figure, r, c);
+        }
       }
 
       // Grid line
@@ -431,9 +707,41 @@ function drawBoard() {
       ctx.strokeRect(x, y, CELL, CELL);
     }
   }
+
+  // Draw move arrows (only show opponent's arrow)
+  if (oppLastMove) {
+    drawArrow(oppLastMove.fromRow, oppLastMove.fromCol, oppLastMove.toRow, oppLastMove.toCol, '#ff8c00');
+  }
+
+  // Draw animated figure
+  if (moveAnimation) {
+    const elapsed = Date.now() - moveAnimation.startTime;
+    const progress = Math.min(1, elapsed / moveAnimation.duration);
+    // Ease out quad
+    const ease = 1 - (1 - progress) * (1 - progress);
+    const cx = moveAnimation.fromX + (moveAnimation.toX - moveAnimation.fromX) * ease;
+    const cy = moveAnimation.fromY + (moveAnimation.toY - moveAnimation.fromY) * ease;
+    drawFigure(cx, cy, moveAnimation.figure);
+
+    if (progress < 1) {
+      requestAnimationFrame(() => drawBoard());
+    } else {
+      // Animation complete
+      const pending = moveAnimation.pendingState;
+      const pendingCombat = moveAnimation.pendingCombat;
+      moveAnimation = null;
+      if (pending) {
+        applyGameState(pending);
+      }
+      if (pendingCombat) {
+        playCombatSound(pendingCombat);
+        showCombatOverlay(pendingCombat);
+      }
+    }
+  }
 }
 
-function drawFigure(x, y, figure) {
+function drawFigure(x, y, figure, row, col) {
   const padding = 3;
   const w = CELL - padding * 2;
   const h = CELL - padding * 2;
@@ -465,7 +773,11 @@ function drawFigure(x, y, figure) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  if (figure.hidden) {
+  // Check if this opponent figure should be revealed (when row/col provided)
+  const shouldReveal = row !== undefined && col !== undefined && 
+    revealedFigures.has(`${row},${col}`);
+
+  if (figure.hidden && !shouldReveal) {
     ctx.font = 'bold 18px Segoe UI';
     ctx.fillText('?', x + CELL/2, y + CELL/2);
   } else {
@@ -485,12 +797,36 @@ function drawFigure(x, y, figure) {
 // ============== SIDEBAR ==============
 
 function updateSidebar() {
+  // Always update static labels regardless of state
+  document.querySelector('#figures-panel h3').textContent = t('figures');
+
+  const myColor = state ? state.myColor : 'red';
+  const oppColor = myColor === 'red' ? 'blue' : 'red';
+  const myColorStyle = myColor === 'red' ? 'OrangeRed' : 'MediumTurquoise';
+  const oppColorStyle = oppColor === 'red' ? 'OrangeRed' : 'MediumTurquoise';
+  const myCapturedKey = myColor === 'red' ? 'capturedRed' : 'capturedBlue';
+  const oppCapturedKey = oppColor === 'red' ? 'capturedRed' : 'capturedBlue';
+  const myCount = state ? (state[myCapturedKey] || []).length : 0;
+  const oppCount = state ? (state[oppCapturedKey] || []).length : 0;
+
+  document.getElementById('captured-my-header').innerHTML = `<span style="color: ${myColorStyle};">${t(myCapturedKey)} (${myCount})</span>`;
+  document.getElementById('captured-opp-header').innerHTML = `<span style="color: ${oppColorStyle};">${t(oppCapturedKey)} (${oppCount})</span>`;
+
   if (!state) return;
 
   const grid = document.getElementById('figures-grid');
   const btnContainer = document.getElementById('btn-container');
+  const figuresPanel = document.getElementById('figures-panel');
 
   if (state.phase === 'placement' && state.role === 'player') {
+    // Show figures panel during placement
+    figuresPanel.style.display = 'block';
+    
+    // Hide figures panel if player is ready
+    if (state.ready) {
+      figuresPanel.style.display = 'none';
+    }
+    
     grid.innerHTML = '';
     const remaining = state.remaining || {};
 
@@ -501,7 +837,7 @@ function updateSidebar() {
       btn.className = 'figure-btn' + (count === 0 ? ' depleted' : '') + (selectedFigure === key ? ' selected' : '');
       btn.innerHTML = `
         <span class="fig-label">${def.label}</span>
-        <span class="fig-name">${def.name}</span>
+        <span class="fig-name">${figName(key)}</span>
         ${count > 0 ? `<span class="count">${count}</span>` : ''}
       `;
       btn.style.borderColor = state.myColor === 'red' ? COLORS.red : COLORS.blue;
@@ -519,29 +855,51 @@ function updateSidebar() {
     if (state.ready) {
       const btn = document.createElement('button');
       btn.className = 'btn btn-ready active';
-      btn.textContent = 'Cancel Ready';
+      btn.textContent = t('cancelReady');
       btn.onclick = () => socket.emit('unready');
       btnContainer.appendChild(btn);
     } else {
       const btn = document.createElement('button');
       btn.className = 'btn btn-ready';
-      btn.textContent = 'Ready!';
+      btn.textContent = t('ready');
       btn.disabled = !allPlaced;
       btn.onclick = () => socket.emit('ready');
       btnContainer.appendChild(btn);
     }
   } else {
+    // Hide figures panel in non-placement phases
+    figuresPanel.style.display = 'none';
     grid.innerHTML = '';
     btnContainer.innerHTML = '';
   }
 
-  // Captured
-  const capRed = document.getElementById('captured-red');
-  const capBlue = document.getElementById('captured-blue');
-  capRed.innerHTML = (state.capturedRed || []).map(f => `<div>${FIGURE_DEFS[f.key]?.label || '?'} ${f.name}</div>`).join('');
-  capBlue.innerHTML = (state.capturedBlue || []).map(f => `<div>${FIGURE_DEFS[f.key]?.label || '?'} ${f.name}</div>`).join('');
-  document.getElementById('captured-red-count').textContent = (state.capturedRed || []).length;
-  document.getElementById('captured-blue-count').textContent = (state.capturedBlue || []).length;
+  // Captured rosters
+  const capMy = document.getElementById('captured-my');
+  const capOpp = document.getElementById('captured-opp');
+
+  function buildRoster(capturedList, color) {
+    const capturedCounts = {};
+    for (const f of (capturedList || [])) {
+      capturedCounts[f.key] = (capturedCounts[f.key] || 0) + 1;
+    }
+
+    let html = '<div class="captured-roster">';
+    for (const key of FIGURE_ORDER) {
+      const def = FIGURE_DEFS[key];
+      const total = def.count;
+      const killed = capturedCounts[key] || 0;
+      for (let i = 0; i < total; i++) {
+        const isCaptured = i < killed;
+        const cls = isCaptured ? `roster-item captured ${color}` : 'roster-item';
+        html += `<span class="${cls}" title="${figName(key)}">${def.label}</span>`;
+      }
+    }
+    html += '</div>';
+    return html;
+  }
+
+  capMy.innerHTML = buildRoster(state[myCapturedKey], myColor);
+  capOpp.innerHTML = buildRoster(state[oppCapturedKey], oppColor);
 }
 
 let countdownInterval = null;
@@ -559,45 +917,45 @@ function stopCountdown() {
 }
 
 function updateStatusBar() {
-  const bar = document.getElementById('status-bar');
-  if (!state) { bar.textContent = 'Connecting...'; return; }
+  const bar = document.getElementById('status-text');
+  if (!state) { bar.textContent = t('connecting'); return; }
 
   // Disconnect countdown takes priority over normal status
   if (state.disconnectedColor && state.reconnectDeadline && state.phase !== 'gameover') {
     const remaining = Math.max(0, Math.ceil((state.reconnectDeadline - Date.now()) / 1000));
     const dcColor = state.disconnectedColor;
-    bar.innerHTML = `<span style="color:${COLORS[dcColor]}">${dcColor.toUpperCase()}</span> disconnected - reconnecting in <span style="color:#e94560">${remaining}s</span>...`;
+    bar.innerHTML = `<span style="color:${COLORS[dcColor]}">${dcColor.toUpperCase()}</span> ${t('disconnected')} <span style="color:#e94560">${remaining}s</span>...`;
     if (remaining > 0 && !countdownInterval) startCountdown();
     return;
   }
 
   if (state.phase === 'waiting') {
     stopCountdown();
-    bar.innerHTML = `You are <span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - Waiting for opponent...`;
+    bar.innerHTML = `${t('youAre')} <span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - ${t('waitingForOpponent')}`;
   } else if (state.phase === 'placement') {
     stopCountdown();
     if (state.ready) {
-      bar.innerHTML = `<span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - Ready! Waiting for opponent... ${state.opponentReady ? '(Opponent ready too!)' : ''}`;
+      bar.innerHTML = `<span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - ${t('ready')} ${t('waitingForOpponentReady')} ${state.opponentReady ? t('opponentReadyToo') : ''}`;
     } else {
       const rem = state.remaining ? Object.values(state.remaining).reduce((a,b) => a+b, 0) : 0;
-      bar.innerHTML = `<span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - Place your figures! (${rem} remaining) - Click a figure, then click on the board`;
+      bar.innerHTML = `<span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - ${t('placeFigures')} (${rem} ${t('remaining')}) - ${t('clickFigureThenBoard')}`;
     }
   } else if (state.phase === 'playing') {
     stopCountdown();
     const isMyTurn = state.turn === state.myColor;
-    bar.innerHTML = `<span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - ${isMyTurn ? "YOUR TURN - Select a piece to move" : "Opponent's turn..."}`;
+    bar.innerHTML = `<span style="color:${COLORS[state.myColor]}">${state.myColor.toUpperCase()}</span> - ${isMyTurn ? t('yourTurn') : '<span class="waiting-timer">\u23F3</span>' + t('opponentTurn')}`;
   } else if (state.phase === 'gameover') {
     let msg = '';
     if (state.winner === state.myColor) {
-      msg = `<span style="color:#27ae60">YOU WIN!</span>`;
+      msg = `<span style="color:#27ae60">${t('youWin')}</span>`;
     } else {
-      msg = `<span style="color:#e74c3c">YOU LOSE!</span> <span style="color:${COLORS[state.winner]}">${state.winner?.toUpperCase()}</span> wins!`;
+      msg = `<span style="color:#e74c3c">${t('youLose')}</span> <span style="color:${COLORS[state.winner]}">${state.winner?.toUpperCase()}</span> ${t('wins')}`;
     }
     // Show reset countdown (server resets 10s after gameover)
     if (gameoverTimestamp) {
       const elapsed = (Date.now() - gameoverTimestamp) / 1000;
       const resetIn = Math.max(0, Math.ceil(10 - elapsed));
-      msg += ` <span style="color:#888">New game in ${resetIn}s</span>`;
+      msg += ` <span style="color:#888">${t('newGameIn')} ${resetIn}s</span>`;
       if (!countdownInterval) startCountdown();
     }
     bar.innerHTML = msg;
@@ -680,12 +1038,41 @@ function handlePlayClick(row, col) {
   if (selectedCell) {
     const isAllowed = allowedMoves.some(([mr, mc]) => mr === row && mc === col);
     if (isAllowed) {
-      socket.emit('move', {
-        fromRow: selectedCell[0],
-        fromCol: selectedCell[1],
-        toRow: row,
-        toCol: col,
-      });
+      const fromRow = selectedCell[0];
+      const fromCol = selectedCell[1];
+      const toRow = row;
+      const toCol = col;
+
+      // Clear opponent's arrow when I move (don't store my own arrow)
+      oppLastMove = null;
+
+      // Get the figure being moved for animation
+      const movingFigure = state.board[fromRow][fromCol].figure;
+
+      // Start animation
+      const [fdr, fdc] = toDisplay(fromRow, fromCol);
+      const [tdr, tdc] = toDisplay(toRow, toCol);
+      moveAnimation = {
+        figure: movingFigure,
+        fromX: fdc * CELL,
+        fromY: fdr * CELL,
+        toX: tdc * CELL,
+        toY: tdr * CELL,
+        startTime: Date.now(),
+        duration: ANIM_DURATION,
+        logicalFrom: [fromRow, fromCol],
+        logicalTo: [toRow, toCol],
+        pendingState: null,
+        pendingCombat: null,
+      };
+
+      // Remove figure from source cell visually (for animation)
+      state.board[fromRow][fromCol].figure = null;
+
+      // Clear revealed figures when player makes a move (completing their turn)
+      revealedFigures.clear();
+
+      socket.emit('move', { fromRow, fromCol, toRow, toCol });
       selectedCell = null;
       allowedMoves = [];
       drawBoard();
@@ -731,24 +1118,29 @@ function showCombatOverlay(data) {
   attBox.style.background = data.attacker.color === 'red' ? COLORS.red : COLORS.blue;
   defBox.style.background = data.defender.color === 'red' ? COLORS.red : COLORS.blue;
 
-  attBox.innerHTML = `<span style="font-size:22px">${attDef?.label || '?'}</span><span style="font-size:11px">${data.attacker.name}</span>`;
-  defBox.innerHTML = `<span style="font-size:22px">${defDef?.label || '?'}</span><span style="font-size:11px">${data.defender.name}</span>`;
+  const attName = figName(data.attacker.key);
+  const defName = figName(data.defender.key);
+
+  attBox.innerHTML = `<span style="font-size:22px">${attDef?.label || '?'}</span><span style="font-size:11px">${attName}</span>`;
+  defBox.innerHTML = `<span style="font-size:22px">${defDef?.label || '?'}</span><span style="font-size:11px">${defName}</span>`;
 
   attBox.className = 'combat-fig';
   defBox.className = 'combat-fig';
 
+  document.querySelector('#combat-box h2').textContent = t('combat');
+
   if (data.result === 'attacker_wins') {
     attBox.classList.add('winner');
     defBox.classList.add('loser');
-    resultText.innerHTML = `<span style="color:${COLORS[data.attacker.color]}">${data.attacker.name}</span> defeats <span style="color:${COLORS[data.defender.color]}">${data.defender.name}</span>!`;
+    resultText.innerHTML = `<span style="color:${COLORS[data.attacker.color]}">${attName}</span> ${t('defeats')} <span style="color:${COLORS[data.defender.color]}">${defName}</span>!`;
   } else if (data.result === 'defender_wins') {
     attBox.classList.add('loser');
     defBox.classList.add('winner');
-    resultText.innerHTML = `<span style="color:${COLORS[data.defender.color]}">${data.defender.name}</span> defeats <span style="color:${COLORS[data.attacker.color]}">${data.attacker.name}</span>!`;
+    resultText.innerHTML = `<span style="color:${COLORS[data.defender.color]}">${defName}</span> ${t('defeats')} <span style="color:${COLORS[data.attacker.color]}">${attName}</span>!`;
   } else {
     attBox.classList.add('draw');
     defBox.classList.add('draw');
-    resultText.textContent = 'Both pieces destroyed!';
+    resultText.textContent = t('bothDestroyed');
   }
 
   // Clear any previous timer to prevent premature dismissal
@@ -765,6 +1157,7 @@ function showCombatOverlay(data) {
 const sounds = {
   bomb: new Audio('/sounds/bomb_1.mp3'),
   kill: new Audio('/sounds/explosion_1.mp3'),
+  bell: new Audio('/sounds/bell.mp3'),
 };
 
 function playCombatSound(data) {
@@ -783,11 +1176,128 @@ function playCombatSound(data) {
 
 // ============== SOCKET EVENTS ==============
 
-socket.on('game_state', (data) => {
+// Detect which piece moved between old and new board states
+function detectOpponentMove(oldState, newData) {
+  if (!oldState || !oldState.board || !newData.board) return null;
+  if (newData.phase !== 'playing' && newData.phase !== 'gameover') return null;
+
+  const oppColor = newData.myColor === 'red' ? 'blue' : 'red';
+  const changes = [];
+
+  for (let r = 0; r < 10; r++) {
+    for (let c = 0; c < 10; c++) {
+      const oldFig = oldState.board[r][c].figure;
+      const newFig = newData.board[r][c].figure;
+
+      // Track all cells where opponent figure appeared or disappeared
+      if (oldFig && oldFig.color === oppColor && (!newFig || newFig.color !== oppColor)) {
+        changes.push({ type: 'disappeared', row: r, col: c, figure: oldFig });
+      }
+      if (newFig && newFig.color === oppColor && (!oldFig || oldFig.color !== oppColor || oldFig.key !== newFig.key)) {
+        changes.push({ type: 'appeared', row: r, col: c, figure: newFig });
+      }
+    }
+  }
+
+  // Find a disappeared and appeared pair (normal move or combat win)
+  const disappeared = changes.filter(c => c.type === 'disappeared');
+  const appeared = changes.filter(c => c.type === 'appeared');
+
+  if (disappeared.length === 1 && appeared.length === 1) {
+    // Simple move or attacker wins
+    return { 
+      fromRow: disappeared[0].row, 
+      fromCol: disappeared[0].col, 
+      toRow: appeared[0].row, 
+      toCol: appeared[0].col 
+    };
+  }
+
+  if (disappeared.length === 1 && appeared.length === 0) {
+    // Opponent attacked and lost (or both died)
+    // Find where they attacked by looking for the nearest cell where our piece exists or was
+    const from = disappeared[0];
+    
+    // Check all 4 adjacent cells first (most common case)
+    const adjacentCells = [
+      [from.row - 1, from.col], // up
+      [from.row + 1, from.col], // down
+      [from.row, from.col - 1], // left
+      [from.row, from.col + 1], // right
+    ];
+    
+    for (const [r, c] of adjacentCells) {
+      if (r >= 0 && r < 10 && c >= 0 && c < 10) {
+        const oldFig = oldState.board[r][c].figure;
+        const newFig = newData.board[r][c].figure;
+        
+        // Check if our piece is still there (we won) or disappeared (both died)
+        if (oldFig && oldFig.color === newData.myColor) {
+          return { fromRow: from.row, fromCol: from.col, toRow: r, toCol: c };
+        }
+      }
+    }
+    
+    // If not adjacent, check for scout long-range moves (same row or column)
+    for (let r = 0; r < 10; r++) {
+      for (let c = 0; c < 10; c++) {
+        if (r === from.row || c === from.col) { // same row or column
+          const oldFig = oldState.board[r][c].figure;
+          if (oldFig && oldFig.color === newData.myColor) {
+            // Make sure there's a clear path (no figures between)
+            let pathClear = true;
+            if (r === from.row) {
+              // Horizontal movement
+              const minCol = Math.min(from.col, c);
+              const maxCol = Math.max(from.col, c);
+              for (let checkCol = minCol + 1; checkCol < maxCol; checkCol++) {
+                if (oldState.board[r][checkCol].figure) {
+                  pathClear = false;
+                  break;
+                }
+              }
+            } else {
+              // Vertical movement
+              const minRow = Math.min(from.row, r);
+              const maxRow = Math.max(from.row, r);
+              for (let checkRow = minRow + 1; checkRow < maxRow; checkRow++) {
+                if (oldState.board[checkRow][c].figure) {
+                  pathClear = false;
+                  break;
+                }
+              }
+            }
+            
+            if (pathClear) {
+              return { fromRow: from.row, fromCol: from.col, toRow: r, toCol: c };
+            }
+          }
+        }
+      }
+    }
+  }
+
+  console.log('No move detected');
+  return null;
+}
+
+function applyGameState(data) {
   const prevPhase = state ? state.phase : null;
   state = data;
   selectedCell = null;
   allowedMoves = [];
+
+  // Clear arrow on phase change to non-playing
+  if (state.phase !== 'playing' && state.phase !== 'gameover') {
+    oppLastMove = null;
+    revealedFigures.clear();
+  }
+
+  // Play bell sound when game starts (both players ready)
+  if (state.phase === 'playing' && prevPhase === 'placement') {
+    sounds.bell.currentTime = 0;
+    sounds.bell.play().catch(() => {});
+  }
 
   // Track when gameover first occurs for reset countdown
   if (state.phase === 'gameover' && prevPhase !== 'gameover') {
@@ -808,6 +1318,87 @@ socket.on('game_state', (data) => {
   drawBoard();
   updateSidebar();
   updateStatusBar();
+}
+
+let pendingCombatData = null;
+
+socket.on('game_state', (data) => {
+  const oldState = state;
+  const prevTurn = state ? state.turn : null;
+  const isMyTurnNow = data.turn === data.myColor;
+  const wasMyTurn = prevTurn === data.myColor;
+
+  // Detect opponent's move: turn changed from opponent to me
+  const oppMoved = oldState && 
+    oldState.board &&
+    data.phase !== 'placement' && 
+    data.phase !== 'waiting' &&
+    prevTurn !== null &&
+    !wasMyTurn && 
+    isMyTurnNow;
+
+  if (oppMoved) {
+    const oppMove = detectOpponentMove(oldState, data);
+    if (oppMove) {
+      oppLastMove = oppMove; // store opponent's move arrow (shown in orange)
+
+      // Get the figure to animate (from old state)
+      const oldFig = oldState.board[oppMove.fromRow][oppMove.fromCol].figure;
+      if (oldFig) {
+        const [fdr, fdc] = toDisplay(oppMove.fromRow, oppMove.fromCol);
+        const [tdr, tdc] = toDisplay(oppMove.toRow, oppMove.toCol);
+        moveAnimation = {
+          figure: oldFig,
+          fromX: fdc * CELL,
+          fromY: fdr * CELL,
+          toX: tdc * CELL,
+          toY: tdr * CELL,
+          startTime: Date.now(),
+          duration: ANIM_DURATION,
+          logicalFrom: [oppMove.fromRow, oppMove.fromCol],
+          logicalTo: [oppMove.toRow, oppMove.toCol],
+          pendingState: data,
+          pendingCombat: pendingCombatData,
+        };
+        pendingCombatData = null;
+        // Apply state immediately but animation will handle the visual
+        state = data;
+        selectedCell = null;
+        allowedMoves = [];
+
+        // Play bell sound when game starts
+        const prevPhase = oldState ? oldState.phase : null;
+        if (state.phase === 'playing' && prevPhase === 'placement') {
+          sounds.bell.currentTime = 0;
+          sounds.bell.play().catch(() => {});
+        }
+        if (state.phase === 'gameover' && prevPhase !== 'gameover') {
+          gameoverTimestamp = Date.now();
+        } else if (state.phase !== 'gameover') {
+          gameoverTimestamp = null;
+          stopCountdown();
+        }
+
+        updateSidebar();
+        updateStatusBar();
+        drawBoard(); // starts animation loop
+        return;
+      }
+    }
+  }
+
+  // If it's my own move coming back, or no animation needed
+  if (moveAnimation) {
+    // Animation in progress (my move) - queue the state update
+    moveAnimation.pendingState = data;
+    if (pendingCombatData) {
+      moveAnimation.pendingCombat = pendingCombatData;
+      pendingCombatData = null;
+    }
+    return;
+  }
+
+  applyGameState(data);
 });
 
 socket.on('allowed_moves', (data) => {
@@ -816,8 +1407,19 @@ socket.on('allowed_moves', (data) => {
 });
 
 socket.on('combat_result', (data) => {
-  playCombatSound(data);
-  showCombatOverlay(data);
+  // Check if opponent's figure killed mine (defender wins and defender is opponent)
+  if (state && data.result === 'defender_wins' && data.defender.color !== state.myColor) {
+    // Reveal the opponent's figure at toRow, toCol
+    revealedFigures.add(`${data.toRow},${data.toCol}`);
+  }
+  
+  if (moveAnimation) {
+    // Queue combat for after animation
+    pendingCombatData = data;
+  } else {
+    playCombatSound(data);
+    showCombatOverlay(data);
+  }
 });
 
 socket.on('game_reset', () => {
@@ -825,17 +1427,22 @@ socket.on('game_reset', () => {
 });
 
 socket.on('rejected', (data) => {
-  document.getElementById('status-bar').textContent = data.reason || 'Game is full.';
+  document.getElementById('status-text').textContent = data.reason || t('gameIsFull');
   document.getElementById('gameCanvas').style.opacity = '0.5';
   document.getElementById('gameCanvas').style.pointerEvents = 'none';
 });
 
 socket.on('disconnect', () => {
-  document.getElementById('status-bar').textContent = 'Disconnected from server. Refresh to reconnect.';
+  document.getElementById('status-text').textContent = t('disconnectedFromServer');
 });
 
-// Initial draw
+// Initial setup
 drawBoard();
+// Apply saved language on load
+document.getElementById('lang-en').className = currentLang === 'en' ? 'active' : '';
+document.getElementById('lang-ua').className = currentLang === 'ua' ? 'active' : '';
+document.getElementById('status-text').textContent = t('connecting');
+updateStaticLabels();
 </script>
 </body>
 </html>
