@@ -574,7 +574,7 @@ let moveAnimation = null; // { figure, fromX, fromY, toX, toY, startTime, durati
 const ANIM_DURATION = 200; // ms
 
 // Revealed opponent figures (when they kill my figure, show their value until my next turn)
-let revealedFigures = new Set(); // Set of "row,col" strings for revealed opponent figures
+let revealedFigures = new Map(); // Map of "row,col" -> figure key (e.g., "3,4" -> "major")
 
 // ============== BOARD ORIENTATION ==============
 
@@ -774,14 +774,22 @@ function drawFigure(x, y, figure, row, col) {
   ctx.textBaseline = 'middle';
 
   // Check if this opponent figure should be revealed (when row/col provided)
-  const shouldReveal = row !== undefined && col !== undefined && 
-    revealedFigures.has(`${row},${col}`);
+  const revealedKey = row !== undefined && col !== undefined ? 
+    revealedFigures.get(`${row},${col}`) : null;
 
-  if (figure.hidden && !shouldReveal) {
+  if (figure.hidden) {
+    if (revealedKey) {
+      console.log('Revealing figure at', row, col, '- using key:', revealedKey);
+    }
+  }
+
+  if (figure.hidden && !revealedKey) {
     ctx.font = 'bold 18px Segoe UI';
     ctx.fillText('?', x + CELL/2, y + CELL/2);
   } else {
-    const def = FIGURE_DEFS[figure.key];
+    // Use revealed key if available, otherwise use figure's key
+    const keyToUse = revealedKey || figure.key;
+    const def = FIGURE_DEFS[keyToUse];
     if (def) {
       const label = def.label;
       if (label.length <= 2) {
@@ -1407,10 +1415,16 @@ socket.on('allowed_moves', (data) => {
 });
 
 socket.on('combat_result', (data) => {
+  console.log('combat_result received:', data);
+  console.log('state.myColor:', state?.myColor);
+  
   // Check if opponent's figure killed mine (defender wins and defender is opponent)
   if (state && data.result === 'defender_wins' && data.defender.color !== state.myColor) {
-    // Reveal the opponent's figure at toRow, toCol
-    revealedFigures.add(`${data.toRow},${data.toCol}`);
+    // Reveal the opponent's figure at toRow, toCol (where the defender stayed)
+    const key = `${data.toRow},${data.toCol}`;
+    revealedFigures.set(key, data.defender.key); // Store the actual figure key
+    console.log('Revealing opponent figure at', data.toRow, data.toCol, '- key:', key, 'figure:', data.defender.key);
+    console.log('revealedFigures now has:', Array.from(revealedFigures.entries()));
   }
   
   if (moveAnimation) {
