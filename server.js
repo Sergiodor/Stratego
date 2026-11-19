@@ -572,5 +572,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Stratego server running on http://0.0.0.0:${PORT}`);
+  console.log(`Stratego server running on http://127.0.0.1:${PORT}`);
 });

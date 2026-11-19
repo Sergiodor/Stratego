@@ -87,7 +87,7 @@
     flex-shrink: 0;
   }
   #captured-row {
-    display: flex;
+    display: none;
     gap: 8px;
     margin-top: 8px;
     width: 500px;
@@ -397,6 +397,14 @@
   </div>
 </div>
 
+<div id="confirm-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center;">
+  <div style="background:#16213e;padding:20px;border-radius:8px;text-align:center;max-width:90vw;">
+    <p id="confirm-message" style="margin:0 0 16px;"></p>
+    <button id="confirm-yes" class="btn btn-ready" style="margin:0 6px;"></button>
+    <button id="confirm-no" class="btn" style="margin:0 6px;"></button>
+  </div>
+</div>
+
 <div id="combat-overlay">
   <div id="combat-box">
     <h2>Combat!</h2>
@@ -442,6 +450,10 @@ const TRANSLATIONS = {
     combat: 'Combat!',
     defeats: 'defeats',
     bothDestroyed: 'Both pieces destroyed!',
+    yes: 'Yes',
+    no: 'No',
+    saveLayoutQ: 'Save this figure placement for future games?',
+    restoreLayoutQ: 'Restore your saved figure placement?',
     // Figure names
     fig_bomb: 'Bomb',
     fig_flag: 'Flag',
@@ -482,6 +494,10 @@ const TRANSLATIONS = {
     combat: 'Бій!',
     defeats: 'перемагає',
     bothDestroyed: 'Обидві фігури знищені!',
+    yes: 'Так',
+    no: 'Ні',
+    saveLayoutQ: 'Зберегти цю розстановку фігур для наступних ігор?',
+    restoreLayoutQ: 'Відновити збережену розстановку фігур?',
     // Figure names
     fig_bomb: 'Бомба',
     fig_flag: 'Прапор',
@@ -871,7 +887,12 @@ function updateSidebar() {
       btn.className = 'btn btn-ready';
       btn.textContent = t('ready');
       btn.disabled = !allPlaced;
-      btn.onclick = () => socket.emit('ready');
+      btn.onclick = () => {
+        showConfirm(t('saveLayoutQ'), () => {
+          saveLayout();
+          socket.emit('ready');
+        }, () => socket.emit('ready'));
+      };
       btnContainer.appendChild(btn);
     }
   } else {
@@ -881,7 +902,14 @@ function updateSidebar() {
     btnContainer.innerHTML = '';
   }
 
-  // Captured rosters
+  // Captured rosters - only show after game begins
+  const capturedRow = document.getElementById('captured-row');
+  if (!state || (state.phase !== 'playing' && state.phase !== 'gameover')) {
+    if (capturedRow) capturedRow.style.display = 'none';
+  } else {
+    if (capturedRow) capturedRow.style.display = 'flex';
+  }
+
   const capMy = document.getElementById('captured-my');
   const capOpp = document.getElementById('captured-opp');
 
@@ -1315,6 +1343,14 @@ function applyGameState(data) {
     stopCountdown();
   }
 
+  // Offer to restore a saved placement when a new placement phase starts
+  if (state.phase === 'placement' && prevPhase !== 'placement' && !state.ready) {
+    const layout = loadLayout();
+    if (layout) {
+      showConfirm(t('restoreLayoutQ'), () => restoreLayout(layout));
+    }
+  }
+
   // Auto-deselect figure if depleted
   if (state.phase === 'placement' && selectedFigure) {
     const remaining = state.remaining || {};
@@ -1326,6 +1362,67 @@ function applyGameState(data) {
   drawBoard();
   updateSidebar();
   updateStatusBar();
+}
+
+// ============== CONFIRM DIALOG & SAVED LAYOUT ==============
+
+function showConfirm(message, onYes, onNo) {
+  const modal = document.getElementById('confirm-modal');
+  document.getElementById('confirm-message').textContent = message;
+  const yes = document.getElementById('confirm-yes');
+  const no = document.getElementById('confirm-no');
+  yes.textContent = t('yes');
+  no.textContent = t('no');
+  const close = (cb) => { modal.style.display = 'none'; if (cb) cb(); };
+  yes.onclick = () => close(onYes);
+  no.onclick = () => close(onNo);
+  modal.style.display = 'flex';
+}
+
+const LAYOUT_KEY = 'stratego-layout';
+
+// Layout is stored in the player's own perspective (as if playing red, pieces at
+// rows 6-9), so it restores correctly regardless of which color is assigned.
+function toOwnPerspective(r, c) {
+  return state.myColor === 'blue' ? [9 - r, 9 - c] : [r, c];
+}
+
+function saveLayout() {
+  const pieces = [];
+  for (let r = 0; r < 10; r++) {
+    for (let c = 0; c < 10; c++) {
+      const f = state.board[r][c].figure;
+      if (f && f.color === state.myColor && !f.hidden) {
+        const [pr, pc] = toOwnPerspective(r, c);
+        pieces.push({ key: f.key, row: pr, col: pc });
+      }
+    }
+  }
+  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(pieces)); } catch (e) {}
+}
+
+function loadLayout() {
+  try {
+    const pieces = JSON.parse(localStorage.getItem(LAYOUT_KEY));
+    return Array.isArray(pieces) && pieces.length ? pieces : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function restoreLayout(pieces) {
+  if (!state || state.phase !== 'placement' || state.ready) return;
+  // Clear current own pieces first, then place saved ones
+  for (let r = 0; r < 10; r++) {
+    for (let c = 0; c < 10; c++) {
+      const f = state.board[r][c].figure;
+      if (f && f.color === state.myColor) socket.emit('remove_figure', { row: r, col: c });
+    }
+  }
+  for (const p of pieces) {
+    const [r, c] = toOwnPerspective(p.row, p.col); // same transform both ways
+    socket.emit('place_figure', { figureKey: p.key, row: r, col: c });
+  }
 }
 
 let pendingCombatData = null;
